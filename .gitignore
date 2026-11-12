@@ -1,0 +1,4 @@
+export/
+*.session
+*.log
+__pycache__/
