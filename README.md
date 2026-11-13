@@ -5,7 +5,7 @@ Exports chat messages from [SexChatFun.com](https://www.sexchatfun.com) chat roo
 ## Quick Start
 
 ```bash
-# Basic export (auto-launches Chrome, fills guest form)
+# Manual login mode (default) — log in yourself, then navigate to chat
 python main.py --room 1
 
 # With limits and intervals
@@ -31,9 +31,9 @@ export/chat_1/2026-11-12/
 └── images/            # Downloaded images
 ```
 
-## Important: Cloudflare Turnstile
+## Manual Login Mode
 
-When auto-launching Chrome, the script fills the guest form automatically but **you must manually solve the Cloudflare Turnstile captcha** in the browser window. The script waits up to 60 seconds.
+This branch waits for you to log in manually in the browser window, then starts scraping once you navigate to a chat page. No automated guest registration or captcha solving.
 
 ## CLI Reference
 

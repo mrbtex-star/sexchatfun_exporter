@@ -570,178 +570,15 @@ class ChatExporter:
             print(f"  Loaded: {total_rows} total messages visible")
 
     def _accept_age_verification(self, page: Any) -> bool:
-        """Click the 'Yes, I am 18 or older' age-verification button.
-        Returns True if the button was found and clicked."""
+        """Click the 'Yes, I am 18 or older' age-verification button if present."""
         try:
-            # Wait up to 5 seconds for the age overlay to appear
             btn = page.locator("text=Yes, I am 18 or older").first
-            btn.wait_for(state="visible", timeout=5000)
+            btn.wait_for(state="visible", timeout=3000)
             btn.click()
             self.log("Age verification accepted")
             return True
-        except Exception as e:
-            self.log(f"Age verification button not found: {e}", force=True)
+        except Exception:
             return False
-
-    def _click_guest(self, page: Any) -> bool:
-        """Click the 'Continue as guest' button to open the registration modal.
-        Returns True if the modal opened."""
-        try:
-            btn = page.locator("text=Continue as guest").first
-            btn.wait_for(state="visible", timeout=3000)
-            btn.click()
-            time.sleep(2)  # Wait for modal to appear
-            modal = page.query_selector("._modal_zwuga_13")
-            if modal:
-                self.log("Guest modal opened")
-                return True
-            else:
-                self.log("Modal not found after guest click", force=True)
-        except Exception as e:
-            self.log(f"Guest click error: {e}", force=True)
-        return False
-
-    def _fill_guest_form(self, page: Any) -> bool:
-        """Fill and submit the guest registration form.
-
-        Returns True if successfully submitted and chat content visible.
-        Returns False if Turnstile captcha blocked it.
-        """
-        from playwright.sync_api import TimeoutError as PwTimeout
-
-        # Wait for the modal and inputs to be visible
-        try:
-            username_input = page.locator('._modal_zwuga_13 input[type="text"]').first
-            username_input.wait_for(state="visible", timeout=5000)
-        except PwTimeout:
-            self.log("Username input not visible in guest modal", force=True)
-            return False
-
-        from guest_names import generate_username
-        username = generate_username()
-
-        # Fill username
-        try:
-            username_input.fill(username)
-            self.log(f"Filled username: {username}")
-        except Exception as e:
-            self.log(f"Username fill error: {e}", force=True)
-            return False
-
-        # Select gender (Female = 8)
-        try:
-            page.locator('._modal_zwuga_13 select').first.select_option(value="8")
-            self.log("Selected gender")
-        except Exception as e:
-            self.log(f"Gender select error: {e}", force=True)
-
-        # Fill date of birth
-        try:
-            page.locator('._modal_zwuga_13 input[type="date"]').first.fill("1990-06-15")
-            self.log("Filled date of birth")
-        except Exception as e:
-            self.log(f"DOB fill error: {e}", force=True)
-
-        # Try submitting
-        try:
-            submit_btn = page.locator('._modal_zwuga_13 button[type="submit"]').first
-            submit_btn.click(force=True)
-            time.sleep(5)
-        except Exception as e:
-            self.log(f"Submit error: {e}", force=True)
-
-        # Check result
-        errors = page.evaluate("""
-            () => Array.from(document.querySelectorAll('[class*=error]'))
-                   .map(el => el.textContent.trim())
-        """)
-
-        has_chat = page.evaluate("document.body.innerText.includes('row_xicnu')")
-
-        if errors and any("captcha" in e.lower() for e in errors):
-            self.log("Turnstile captcha required — user must solve manually", force=True)
-            return False
-        elif errors:
-            self.log(f"Form error: {errors}", force=True)
-            return False
-        elif has_chat:
-            self.log("Guest registration successful!")
-            return True
-        else:
-            # Check if still on /login
-            if "login" in page.url.lower():
-                self.log("Still on login page — Turnstile blocked", force=True)
-                return False
-            time.sleep(1)
-            return self._fill_guest_form(page)
-
-    def _wait_for_guest_login(self, page: Any, timeout: int = 60) -> bool:
-        """Wait for the user to solve the Turnstile captcha manually.
-
-        The browser window stays open. Returns True when chat loads.
-        Handles page navigation that happens after captcha solve.
-        """
-        from playwright.sync_api import TimeoutError as PwTimeout
-
-        print(f"\n  {'='*50}")
-        print(f"  TURNSTILE CAPTCHA REQUIRED")
-        print(f"  Please solve the captcha in the browser window.")
-        print(f"  After solving, the chat will load automatically.")
-        print(f"  Timeout: {timeout}s (Ctrl+C to exit)")
-        print(f"  {'='*50}\n")
-
-        start = time.time()
-        while time.time() - start < timeout:
-            time.sleep(2)
-
-            try:
-                current_url = page.url.lower()
-            except Exception:
-                # Page was navigated away, get a fresh page reference
-                self.log("Page navigated — waiting for new page...")
-                try:
-                    page = page.main_frame.page
-                    time.sleep(2)
-                except Exception:
-                    continue
-
-            # If still on /login page with modal, keep waiting
-            if "login" in current_url:
-                try:
-                    has_modal = page.evaluate("!!document.querySelector('._modal_zwuga_13')")
-                    if has_modal:
-                        remaining = max(0, int(timeout - (time.time() - start)))
-                        print(f"  Waiting for captcha... ({remaining}s remaining)")
-                        continue
-                except Exception:
-                    # Page navigated while checking — fall through to chat load check
-                    pass
-
-            # Captcha solved — page left /login. Go to /chat/1 and wait for chat.
-            if "login" not in current_url:
-                self.log("Captcha solved — loading chat...")
-                try:
-                    page.goto(SITE_URL + self.room, wait_until="networkidle", timeout=self.timeout_ms)
-                    time.sleep(3)
-                    has_chat = page.evaluate("document.body.innerText.includes('row_xicnu')")
-                    rows = page.query_selector_all(self.chat_selector)
-                    if has_chat or rows:
-                        self.log(f"Chat loaded after {int(time.time() - start)}s!")
-                        return True
-                except PwTimeout:
-                    self.log("Chat load timed out, trying again...", force=True)
-                    time.sleep(5)
-                    try:
-                        has_chat = page.evaluate("document.body.innerText.includes('row_xicnu')")
-                        rows = page.query_selector_all(self.chat_selector)
-                        if has_chat or rows:
-                            self.log(f"Chat loaded after retry!")
-                            return True
-                    except Exception:
-                        pass
-
-        self.log("Timed out waiting for captcha", force=True)
-        return False
 
     def _print_header(self) -> None:
         print("=" * 60)
@@ -754,43 +591,57 @@ class ChatExporter:
         print(f"  Load older: {'yes' if self.load_older else 'no'}")
         print(f"  Formats:  {', '.join(self.formats)}")
         if self.auto_launch:
-            print(f"  Mode:     auto-launch (solve captcha manually)")
+            print(f"  Mode:     auto-launch (manual login)")
         elif self.cdp_url:
             print(f"  Mode:     connect to {self.cdp_url}")
         print("=" * 60)
 
     def _navigate(self, page: Any) -> None:
+        """Navigate to chat, waiting for user to log in manually."""
         root = SITE_URL + "/"
-        print(f"\n  Establishing session at {root} ...")
+        print(f"\n  Opening {root} ...")
         page.goto(root, wait_until="domcontentloaded", timeout=self.timeout_ms)
 
-        # Accept age verification
+        # Accept age verification if present
         if self._accept_age_verification(page):
-            time.sleep(2)  # Wait for redirect to /login
-            self.log("Navigating to /login page...")
+            time.sleep(1)
 
-            # Click guest to open registration modal
-            if self._click_guest(page):
-                self.log("Guest modal opened, filling form...")
-                if not self._fill_guest_form(page):
-                    # Wait for user to solve Turnstile captcha
-                    self._wait_for_guest_login(page)
-            else:
-                self.log("Guest button not found, trying /chat/1 directly...", force=True)
-        else:
-            self.log("Age verification already accepted or not needed", force=True)
+        print("\n  ==================================================")
+        print("  MANUAL LOGIN REQUIRED")
+        print("  Please log in with your credentials in the browser.")
+        print("  After logging in, open the chat page.")
+        print("  Timeout: 120s (Ctrl+C to exit)")
+        print("  ==================================================\n")
 
-        url = SITE_URL + self.room
-        print(f"  Navigating to {url} ...")
-        page.goto(url, wait_until="domcontentloaded", timeout=self.timeout_ms)
-        time.sleep(2)
+        start = time.time()
+        while time.time() - start < 120:
+            time.sleep(2)
 
-        print("  Waiting for chat container ...")
-        try:
-            page.wait_for_selector(self.chat_selector, timeout=15000)
-        except Exception:
-            self.log("Chat container not found, proceeding anyway...", force=True)
-        print("  Chat ready.")
+            try:
+                current_url = page.url.lower()
+            except Exception:
+                self.log("Page navigated — waiting...")
+                try:
+                    page = page.main_frame.page
+                except Exception:
+                    continue
+
+            # Check if user navigated to chat page
+            if self.room.lower() in current_url or f"{SITE_URL}/chat/" in current_url:
+                self.log("Chat URL detected — waiting for content...")
+                time.sleep(3)
+                try:
+                    has_chat = page.evaluate("document.body.innerText.includes('row_xicnu')")
+                    rows = page.query_selector_all(self.chat_selector)
+                    if has_chat or rows:
+                        self.log(f"Chat loaded in {int(time.time() - start)}s!")
+                        return
+                except Exception:
+                    pass
+
+            print(f"  Waiting for login... ({max(0, int(120 - (time.time() - start)))}s remaining)")
+
+        self.log("Timed out waiting for login", force=True)
 
     def _initial_capture(self, page: Any) -> None:
         initial = self.capture_messages(page)
